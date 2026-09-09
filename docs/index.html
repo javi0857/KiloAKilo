@@ -155,14 +155,14 @@
         const res = await fetch(API_URL);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        render(data.peso || [], data.deporte || []);
+        render(data.peso || [], data.deporte || [], data.objetivo || {});
       } catch (err) {
         $('content').className = 'error';
         $('content').textContent = 'Error al cargar datos. Revisa la URL de Apps Script en el código.';
       }
     }
 
-    function render(pesoRows, deporteRows) {
+    function render(pesoRows, deporteRows, objetivo) {
       const pesos = [...(pesoRows || [])]
         .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
         .filter(r => r.peso_kg !== "" && r.peso_kg !== null);
@@ -176,6 +176,8 @@
       const last = pesos[pesos.length - 1];
       const prev = pesos.length >= 2 ? pesos[pesos.length - 2] : null;
       const delta = prev ? (last.peso_kg - prev.peso_kg).toFixed(1) : null;
+      const pesoObjetivo = objetivo && objetivo.peso_objetivo != null ? Number(objetivo.peso_objetivo) : null;
+      const restante = pesoObjetivo != null ? (pesoObjetivo - last.peso_kg) : null;
 
       let html = '<div class="summary">';
       html += `
@@ -189,6 +191,16 @@
           <div class="value">${pesos.length}</div>
         </div>
       `;
+      if (restante != null) {
+        const superado = restante < 0;
+        html += `
+        <div class="card">
+          <div class="label">Para el objetivo (${pesoObjetivo} kg)</div>
+          <div class="value ${superado ? 'down' : 'up'}">${Math.abs(restante).toFixed(1)} kg</div>
+          <div class="delta">${superado ? 'objetivo superado' : 'te separan'}</div>
+        </div>
+        `;
+      }
       html += '</div>';
 
       if (pesos.length >= 2) {
@@ -205,27 +217,42 @@
 
       $('content').innerHTML = html;
 
-      if (pesos.length >= 2) renderPesoChart(pesos);
+      if (pesos.length >= 2) renderPesoChart(pesos, restante != null ? pesoObjetivo : null);
     }
 
-    function renderPesoChart(pesos) {
+    function renderPesoChart(pesos, pesoObjetivo) {
+      const datasets = [{
+        data: pesos.map(r => r.peso_kg),
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: '#3b82f6',
+        label: 'Peso',
+      }];
+
+      if (pesoObjetivo != null) {
+        datasets.push({
+          data: pesos.map(() => pesoObjetivo),
+          borderColor: '#22c55e',
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          borderWidth: 1.5,
+          label: `Objetivo (${pesoObjetivo} kg)`,
+        });
+      }
+
       new Chart($('pesoChart'), {
         type: 'line',
         data: {
           labels: pesos.map(r => r.fecha),
-          datasets: [{
-            data: pesos.map(r => r.peso_kg),
-            borderColor: '#3b82f6',
-            backgroundColor: 'rgba(59,130,246,0.1)',
-            fill: true,
-            tension: 0.3,
-            pointRadius: 3,
-            pointBackgroundColor: '#3b82f6',
-          }]
+          datasets,
         },
         options: {
           responsive: true,
-          plugins: { legend: { display: false } },
+          plugins: { legend: { display: pesoObjetivo != null } },
           scales: {
             x: {
               ticks: { color: '#94a3b8', maxTicksLimit: 8 },
