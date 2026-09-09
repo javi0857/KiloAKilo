@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>KiloAKilo</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --green: #22c55e;
+      --red: #ef4444;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 16px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .card .label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .card .value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .card .delta {
+      font-size: 0.8rem;
+      margin-top: 2px;
+    }
+
+    .down { color: var(--green); }
+    .up { color: var(--red); }
+
+    .chart-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+
+    .chart-container h2 {
+      font-size: 0.9rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    canvas {
+      width: 100% !important;
+      max-height: 250px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    th {
+      text-align: left;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 6px;
+      font-weight: 500;
+    }
+
+    td {
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 40px 0;
+      font-size: 0.9rem;
+    }
+
+    .loading {
+      text-align: center;
+      color: var(--muted);
+      padding: 40px 0;
+    }
+
+    .error {
+      background: var(--surface);
+      border: 1px solid var(--red);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      color: var(--red);
+    }
+
+    @media (min-width: 480px) {
+      body { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>KiloAKilo</h1>
+
+  <div id="content" class="loading">Cargando datos...</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script>
+    const API_URL = "TU_URL_DE_APPS_SCRIPT_AQUI";
+    const $ = (id) => document.getElementById(id);
+
+    async function loadData() {
+      try {
+        const res = await fetch(API_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        render(data.peso || [], data.deporte || []);
+      } catch (err) {
+        $('content').className = 'error';
+        $('content').textContent = 'Error al cargar datos. Revisa la URL de Apps Script en el código.';
+      }
+    }
+
+    function render(pesoRows, deporteRows) {
+      const pesos = [...(pesoRows || [])]
+        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
+        .filter(r => r.peso_kg !== "" && r.peso_kg !== null);
+
+      if (pesos.length === 0) {
+        $('content').className = 'empty';
+        $('content').textContent = 'Sin datos aún. Dicta tu primer peso a Gemini.';
+        return;
+      }
+
+      const last = pesos[pesos.length - 1];
+      const prev = pesos.length >= 2 ? pesos[pesos.length - 2] : null;
+      const delta = prev ? (last.peso_kg - prev.peso_kg).toFixed(1) : null;
+
+      let html = '<div class="summary">';
+      html += `
+        <div class="card">
+          <div class="label">Peso actual</div>
+          <div class="value">${last.peso_kg} kg</div>
+          ${delta ? `<div class="delta ${parseFloat(delta) < 0 ? 'down' : 'up'}">${parseFloat(delta) > 0 ? '+' : ''}${delta} kg</div>` : ''}
+        </div>
+        <div class="card">
+          <div class="label">Registros</div>
+          <div class="value">${pesos.length}</div>
+        </div>
+      `;
+      html += '</div>';
+
+      if (pesos.length >= 2) {
+        html += '<div class="chart-container"><h2>Peso (kg)</h2><canvas id="pesoChart"></canvas></div>';
+      }
+
+      const recent = [...pesos].reverse().slice(0, 10);
+      html += '<div class="card"><table><thead><tr><th>Fecha</th><th>Peso</th></tr></thead><tbody>';
+      for (const r of recent) {
+        const fecha = r.fecha ? new Date(r.fecha + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }) : '-';
+        html += `<tr><td>${fecha}</td><td>${r.peso_kg}</td></tr>`;
+      }
+      html += '</tbody></table></div>';
+
+      $('content').innerHTML = html;
+
+      if (pesos.length >= 2) renderPesoChart(pesos);
+    }
+
+    function renderPesoChart(pesos) {
+      new Chart($('pesoChart'), {
+        type: 'line',
+        data: {
+          labels: pesos.map(r => r.fecha),
+          datasets: [{
+            data: pesos.map(r => r.peso_kg),
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointBackgroundColor: '#3b82f6',
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              ticks: { color: '#94a3b8', maxTicksLimit: 8 },
+              grid: { color: '#334155' }
+            },
+            y: {
+              ticks: { color: '#94a3b8' },
+              grid: { color: '#334155' }
+            }
+          }
+        }
+      });
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
